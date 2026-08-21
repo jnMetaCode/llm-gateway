@@ -1,0 +1,73 @@
+# llm-gateway
+
+统一代理 DeepSeek / Claude 的 LLM 网关：**SSE 流式 · Function Calling 回环 · token 计费 · 熔断降级 · 指数退避重试**。
+
+> Built in public：规格驱动开发的示范项目——先写验收标准，AI 实现，人工逐条验收。
+
+## 快速开始
+
+```bash
+uv sync                      # 安装依赖（含 dev）
+cp .env.example .env         # 填入 GW_DEEPSEEK_API_KEY / GW_ANTHROPIC_API_KEY
+uv run uvicorn app.main:app --reload
+```
+
+跑测试（无需任何 key，上游全部 mock）：
+
+```bash
+uv run pytest -q
+uv run ruff check .
+```
+
+## API 示例
+
+```bash
+# 非流式（默认 deepseek；换模型加 -H "X-Provider: claude"）
+curl -s localhost:8000/v1/chat -H 'content-type: application/json' -d '{
+  "messages": [{"role": "user", "content": "算一下 2+3*4"}],
+  "tools": ["calculator"]
+}' | jq
+
+# SSE 流式
+curl -sN localhost:8000/v1/chat/stream -H 'content-type: application/json' -d '{
+  "messages": [{"role": "user", "content": "用一句话介绍北京"}]
+}'
+
+# 用量与费用
+curl -s localhost:8000/v1/usage | jq
+```
+
+## 架构
+
+```
+Route(main.py) ── 协议/校验/错误映射
+   └─ ChatService(chat_service.py) ── 工具回环 + guarded_call(熔断×重试) + 计费
+        ├─ Provider 适配层(providers/) ── DeepSeek(OpenAI 协议) / Claude(Messages API)
+        ├─ CircuitBreaker(resilience.py) ── CLOSED → OPEN → HALF_OPEN 状态机，按 provider 隔离
+        ├─ tools.py ── 本地工具注册表（ast 白名单计算器 / mock 天气）
+        └─ UsageStore(usage.py) ── 内存计数 + 价格表估费
+```
+
+## 设计决策（面试可讲）
+
+1. **为什么计费放网关层**：业务方无感、跨模型统一口径、限额与告警有单一落点。
+2. **熔断为什么按 provider 隔离**：DeepSeek 挂了不该拖死 Claude 通道（`test_breaker_isolated_per_provider` 验证）。
+3. **4xx 不重试不计熔断**：4xx 是请求方问题，重试只会浪费配额；只有 429/5xx/超时值得退避重试。
+4. **SSE 断连取消链**：客户端断开 → Starlette 取消响应生成器（CancelledError）→ provider 内 `async with client.stream` 退出 → 上游连接关闭。没有这条链，上游会一直吐 token 白烧钱。
+5. **calculator 用 ast 白名单不用 eval**：工具参数来自模型输出，等于不可信输入。
+
+## Java 程序员对照表
+
+| 本项目 | Java 世界 |
+|---|---|
+| pydantic BaseModel | DTO + Bean Validation |
+| Depends / Annotated | Spring 构造器注入 |
+| lifespan | @PostConstruct / @PreDestroy |
+| exception_handler | @ControllerAdvice |
+| asyncio + httpx.AsyncClient | CompletableFuture / WebClient |
+| CircuitBreaker (手写) | Resilience4j |
+| ASGITransport 测试 | MockMvc |
+
+## 已知边界（刻意不做）
+
+无鉴权、无持久化（用量在内存）、流式不重试（失败即报错事件）、流式不支持工具调用。
