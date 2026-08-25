@@ -97,5 +97,3 @@ Route(main.py) ── 协议/校验/错误映射
 [@jnMetaCode](https://github.com/jnMetaCode) · 11 年 IT、8 年技术团队管理 · 公众号 **AI不止语**
 其他开源：[agency-agents-zh](https://github.com/jnMetaCode/agency-agents-zh)（19.8k★，267 个 AI 专家角色 × 18 类工具链）·
 [superpowers-zh](https://github.com/jnMetaCode/superpowers-zh)（7.8k★）· [agency-orchestrator](https://github.com/jnMetaCode/agency-orchestrator)（2.1k★，本项目的上游）
-
-> 在看北京的 AI 技术负责人 / 交付负责人 / 技术合伙人机会 · jnMetaCode@qq.com
