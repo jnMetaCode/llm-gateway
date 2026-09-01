@@ -1,5 +1,7 @@
 # llm-gateway
 
+[![CI](https://github.com/jnMetaCode/llm-gateway/actions/workflows/ci.yml/badge.svg)](https://github.com/jnMetaCode/llm-gateway/actions/workflows/ci.yml)
+
 统一代理 DeepSeek / Claude 的 LLM 网关：**SSE 流式 · Function Calling 回环 · token 计费 · 熔断降级 · 指数退避重试**。
 
 > Built in public：规格驱动开发的示范项目——先写验收标准，AI 实现，人工逐条验收。**10/10 测试 + Docker 验收。**
@@ -76,7 +78,13 @@ Route(main.py) ── 协议/校验/错误映射
 
 ## 已知边界（刻意不做）
 
-无鉴权、无持久化（用量在内存）、流式不重试（失败即报错事件）、流式不支持工具调用。
+无鉴权、无限流、用量不持久化（进程内存，重启清零——demo 定位，是规格声明不是遗漏）。
+
+**流式的三个设计边界**（每条都是一道「为什么不做」的面试题）：
+
+1. **流式不重试**：SSE 一旦开始发帧，HTTP 200 已定、部分内容已到达客户端——此时上游失败只能发 `error` 事件交给客户端决策，网关若静默重试会吐出重复内容。重试与熔断退避只保护非流式路径（`guarded_call`）。
+2. **断流不计费**：usage 事件在流末尾才到，中途失败拿不到真实 token 数——宁可少记也不估算，猜出来的计费数字会污染对账。
+3. **流式不带工具调用**：工具回环要求「完整收到 tool_call → 本地执行 → 回填再问」，与逐 token 透传天然冲突；要支持就得在网关缓冲整轮再转发，v1 明确不做。
 
 ---
 
@@ -87,7 +95,7 @@ Route(main.py) ── 协议/校验/错误映射
 | | 做什么 | 关键实测 |
 |---|---|---|
 | [repo-rag](https://github.com/jnMetaCode/repo-rag) | 中文知识库 RAG：结构分块 + 两层拒答 + 引用溯源 | hit@1 95.8% · faithfulness 0.981 |
-| [orchestrator-lg](https://github.com/jnMetaCode/orchestrator-lg) | 自研 DAG 引擎迁到 LangGraph：checkpoint + 可持久化审批中断 | 7/7 测试 · YAML 零改动兼容 |
+| [orchestrator-lg](https://github.com/jnMetaCode/orchestrator-lg) | 自研 DAG 引擎迁到 LangGraph：checkpoint + 可持久化审批中断 | 8/8 测试 · YAML 零改动兼容 · 跨进程恢复 |
 | [llm-gateway](https://github.com/jnMetaCode/llm-gateway) | 多模型网关：SSE 取消链 + 三态熔断 + token 计费 | 10/10 测试 · Docker |
 
 共同的方法论：**先建评估集，再写优化**——每个技术决策都由实测数据推导，包括那些「该做但做了反而更差」的决策。
